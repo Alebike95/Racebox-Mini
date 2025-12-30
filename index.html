@@ -12,14 +12,15 @@
     }
     button {
       font-size: 16px;
-      padding: 10px;
-      margin-bottom: 10px;
+      padding: 8px;
+      margin-right: 5px;
     }
-    pre {
+    textarea {
+      width: 100%;
+      height: 350px;
       background: #000;
-      padding: 10px;
-      max-height: 400px;
-      overflow-y: auto;
+      color: #0f0;
+      font-family: monospace;
     }
   </style>
 </head>
@@ -28,18 +29,37 @@
 <h2>RaceBox Mini – UART BLE Monitor</h2>
 
 <button id="connect">Connetti</button>
+<button id="pause">⏸ Pausa</button>
+<button id="clear">🧹 Clear</button>
 
-<pre id="log"></pre>
+<textarea id="log" readonly></textarea>
 
 <script>
 const UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const UART_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 const UART_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
+let paused = false;
+let buffer = [];
+
+const logEl = document.getElementById('log');
+
 const log = msg => {
-  const el = document.getElementById('log');
-  el.textContent += msg + '\n';
-  el.scrollTop = el.scrollHeight;
+  if (paused) return;
+  buffer.push(msg);
+  if (buffer.length > 300) buffer.shift(); // buffer circolare
+  logEl.value = buffer.join('\n');
+  logEl.scrollTop = logEl.scrollHeight;
+};
+
+document.getElementById('pause').onclick = () => {
+  paused = !paused;
+  document.getElementById('pause').textContent = paused ? '▶ Riprendi' : '⏸ Pausa';
+};
+
+document.getElementById('clear').onclick = () => {
+  buffer = [];
+  logEl.value = '';
 };
 
 document.getElementById('connect').onclick = async () => {
@@ -60,23 +80,14 @@ document.getElementById('connect').onclick = async () => {
     log('📡 UART service OK');
 
     const txChar = await service.getCharacteristic(UART_TX);
-    const rxChar = await service.getCharacteristic(UART_RX);
-
-    log('📥 TX / 📤 RX caratteristiche OK');
-
     await txChar.startNotifications();
-    log('🔔 Notifiche abilitate (25Hz attesi)');
+    log('🔔 Notifiche attive (25Hz)');
 
     txChar.addEventListener('characteristicvaluechanged', e => {
       const data = new Uint8Array(e.target.value.buffer);
-
-      // dump HEX
       const hex = [...data].map(b => b.toString(16).padStart(2, '0')).join(' ');
-      log(`📡 ${hex}`);
+      log(hex);
     });
-
-    // opzionale: comando di handshake (se richiesto dal firmware)
-    // await rxChar.writeValue(new Uint8Array([0x01]));
 
   } catch (e) {
     log('❌ ERRORE: ' + e.message);
