@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>RaceBox Mini – GNSS + Map</title>
+  <title>RaceBox Mini – Complete Dashboard</title>
 
   <!-- Leaflet -->
   <link
@@ -27,52 +27,179 @@
       cursor: pointer;
     }
 
+    h2 {
+      margin-top: 25px;
+      margin-bottom: 10px;
+      color: #00ccff;
+    }
+
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 15px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
       margin-bottom: 15px;
     }
 
     .card {
       background: #111;
-      border-radius: 12px;
-      padding: 14px;
-      box-shadow: 0 0 10px #000;
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 0 8px #000;
     }
 
     .label {
-      font-size: 13px;
+      font-size: 11px;
       opacity: 0.7;
+      margin-bottom: 4px;
     }
 
     .value {
-      font-size: 24px;
+      font-size: 20px;
       font-weight: bold;
+    }
+
+    .value.small {
+      font-size: 16px;
     }
 
     #map {
       height: 300px;
       border-radius: 12px;
       box-shadow: 0 0 10px #000;
+      margin-bottom: 20px;
+    }
+
+    .battery {
+      background: linear-gradient(90deg, #00ff9c, #00cc7a);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: #000;
+      font-weight: bold;
+      display: inline-block;
     }
   </style>
 </head>
 <body>
 
-<h1>🏁 RaceBox Mini – GNSS Dashboard</h1>
+<h1>🏁 RaceBox Mini – Complete Dashboard</h1>
 
 <button id="connect">🔗 Connetti RaceBox</button>
 
+<!-- GPS RECEIVER -->
+<h2>📡 GPS Receiver</h2>
 <div class="grid">
-  <div class="card"><div class="label">Fix</div><div id="fix" class="value">–</div></div>
-  <div class="card"><div class="label">Satelliti</div><div id="sv" class="value">–</div></div>
-  <div class="card"><div class="label">Velocità</div><div id="speed" class="value">– km/h</div></div>
-  <div class="card"><div class="label">Heading</div><div id="heading" class="value">– °</div></div>
-  <div class="card"><div class="label">Accuratezza</div><div id="acc" class="value">– m</div></div>
-  <div class="card"><div class="label">Frequenza</div><div id="hz" class="value">– Hz</div></div>
+  <div class="card">
+    <div class="label">Time (UTC)</div>
+    <div id="time" class="value small">–</div>
+  </div>
+  <div class="card">
+    <div class="label">Fix type</div>
+    <div id="fix" class="value small">–</div>
+  </div>
+  <div class="card">
+    <div class="label">Satellites</div>
+    <div id="sv" class="value">–</div>
+  </div>
+  <div class="card">
+    <div class="label">Frequency</div>
+    <div id="hz" class="value">– Hz</div>
+  </div>
+  <div class="card">
+    <div class="label">Battery</div>
+    <div id="battery" class="value">–</div>
+  </div>
+  <div class="card">
+    <div class="label">PDOP</div>
+    <div id="pdop" class="value small">–</div>
+  </div>
 </div>
 
+<!-- POSITION -->
+<h2>📍 Position</h2>
+<div class="grid">
+  <div class="card">
+    <div class="label">Latitude</div>
+    <div id="lat" class="value small">–</div>
+  </div>
+  <div class="card">
+    <div class="label">Longitude</div>
+    <div id="lon" class="value small">–</div>
+  </div>
+  <div class="card">
+    <div class="label">Altitude (WGS84)</div>
+    <div id="alt_wgs" class="value small">– m</div>
+  </div>
+  <div class="card">
+    <div class="label">Altitude (MSL)</div>
+    <div id="alt_msl" class="value small">– m</div>
+  </div>
+  <div class="card">
+    <div class="label">Accuracy (H)</div>
+    <div id="acc_h" class="value small">– m</div>
+  </div>
+  <div class="card">
+    <div class="label">Accuracy (V)</div>
+    <div id="acc_v" class="value small">– m</div>
+  </div>
+</div>
+
+<!-- MOTION -->
+<h2>🏎️ Motion</h2>
+<div class="grid">
+  <div class="card">
+    <div class="label">Speed</div>
+    <div id="speed" class="value">– km/h</div>
+  </div>
+  <div class="card">
+    <div class="label">Heading</div>
+    <div id="heading" class="value">– °</div>
+  </div>
+  <div class="card">
+    <div class="label">Speed Accuracy</div>
+    <div id="speed_acc" class="value small">– km/h</div>
+  </div>
+  <div class="card">
+    <div class="label">Heading Accuracy</div>
+    <div id="heading_acc" class="value small">– °</div>
+  </div>
+</div>
+
+<!-- ACCELEROMETER -->
+<h2>⚡ Accelerometer</h2>
+<div class="grid">
+  <div class="card">
+    <div class="label">X (front/back)</div>
+    <div id="acc_x" class="value small">– G</div>
+  </div>
+  <div class="card">
+    <div class="label">Y (right/left)</div>
+    <div id="acc_y" class="value small">– G</div>
+  </div>
+  <div class="card">
+    <div class="label">Z (up/down)</div>
+    <div id="acc_z" class="value small">– G</div>
+  </div>
+</div>
+
+<!-- GYROSCOPE -->
+<h2>🔄 Gyroscope</h2>
+<div class="grid">
+  <div class="card">
+    <div class="label">X (roll)</div>
+    <div id="gyro_x" class="value small">– °/s</div>
+  </div>
+  <div class="card">
+    <div class="label">Y (pitch)</div>
+    <div id="gyro_y" class="value small">– °/s</div>
+  </div>
+  <div class="card">
+    <div class="label">Z (yaw)</div>
+    <div id="gyro_z" class="value small">– °/s</div>
+  </div>
+</div>
+
+<!-- MAP -->
+<h2>🗺️ Map</h2>
 <div id="map"></div>
 
 <script>
@@ -97,6 +224,16 @@ let track = L.polyline([], { color: '#00ff9c' }).addTo(map);
 /* =======================
    Utils
 ======================= */
+function u8(d, o) {
+  return d[o];
+}
+function u16(d, o) {
+  return d[o] | (d[o+1]<<8);
+}
+function i16(d, o) {
+  const val = u16(d, o);
+  return val > 32767 ? val - 65536 : val;
+}
 function u32(d, o) {
   return d[o] | (d[o+1]<<8) | (d[o+2]<<16) | (d[o+3]<<24);
 }
@@ -105,7 +242,7 @@ function i32(d, o) {
 }
 
 /* =======================
-   Parser RaceBox (CORRETTO con documentazione ufficiale)
+   Parser RaceBox COMPLETO
 ======================= */
 function parseRaceBoxPacket(data) {
   if (data[0] !== 0xB5 || data[1] !== 0x62) return null;
@@ -113,30 +250,62 @@ function parseRaceBoxPacket(data) {
 
   const p = 6; // payload start
 
-  // Offset 20: Fix Status (0=no fix, 3=3D fix)
-  const fixType = data[p + 20];
-  
-  // Offset 23: Number of satellites
-  const numSV = data[p + 23];
+  // TEMPO
+  const year = u16(data, p + 4);
+  const month = u8(data, p + 6);
+  const day = u8(data, p + 7);
+  const hour = u8(data, p + 8);
+  const minute = u8(data, p + 9);
+  const second = u8(data, p + 10);
+  const timeStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')} ${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}:${String(second).padStart(2,'0')}`;
 
-  // Offset 24-27: Longitude (Int32, gradi * 10^7)
+  // FIX
+  const fixType = u8(data, p + 20);
+  const numSV = u8(data, p + 23);
+
+  // POSIZIONE
   const lon = i32(data, p + 24) * 1e-7;
-  
-  // Offset 28-31: Latitude (Int32, gradi * 10^7)
   const lat = i32(data, p + 28) * 1e-7;
+  const altWGS = i32(data, p + 32) / 1000; // mm -> m
+  const altMSL = i32(data, p + 36) / 1000; // mm -> m
 
-  // Offset 40-43: Horizontal Accuracy (UInt32, mm)
-  const hAcc = u32(data, p + 40) / 1000; // converti in metri
+  // ACCURATEZZA
+  const hAcc = u32(data, p + 40) / 1000; // mm -> m
+  const vAcc = u32(data, p + 44) / 1000; // mm -> m
 
-  // Offset 48-51: Speed (Int32, mm/s)
+  // VELOCITA' E HEADING
   const speedMmS = i32(data, p + 48);
-  const gSpeed = (speedMmS / 1000) * 3.6; // converti in km/h
-
-  // Offset 52-55: Heading (Int32, gradi * 10^5)
+  const gSpeed = (speedMmS / 1000) * 3.6; // mm/s -> km/h
+  
   const headingRaw = i32(data, p + 52);
-  const heading = headingRaw / 100000; // converti in gradi
+  const heading = headingRaw / 100000; // gradi * 10^5 -> gradi
 
-  return { fixType, numSV, lat, lon, gSpeed, heading, hAcc };
+  const speedAcc = u32(data, p + 56) / 1000 * 3.6; // mm/s -> km/h
+  const headingAcc = u32(data, p + 60) / 100000; // gradi * 10^5 -> gradi
+
+  // PDOP
+  const pdop = u16(data, p + 64) / 100;
+
+  // BATTERIA
+  const battery = u8(data, p + 67); // % per Mini
+
+  // ACCELEROMETRO (milli-g)
+  const accX = i16(data, p + 68) / 1000; // G
+  const accY = i16(data, p + 70) / 1000; // G
+  const accZ = i16(data, p + 72) / 1000; // G
+
+  // GIROSCOPIO (centi-gradi/s)
+  const gyroX = i16(data, p + 74) / 100; // °/s
+  const gyroY = i16(data, p + 76) / 100; // °/s
+  const gyroZ = i16(data, p + 78) / 100; // °/s
+
+  return {
+    timeStr, fixType, numSV, pdop, battery,
+    lat, lon, altWGS, altMSL, hAcc, vAcc,
+    gSpeed, heading, speedAcc, headingAcc,
+    accX, accY, accZ,
+    gyroX, gyroY, gyroZ
+  };
 }
 
 /* =======================
@@ -147,7 +316,7 @@ function updateHz() {
   const now = performance.now();
   hzTimes.push(now);
   hzTimes = hzTimes.filter(t => now - t < 1000);
-  document.getElementById('hz').textContent = hzTimes.length.toFixed(1) + ' Hz';
+  return hzTimes.length;
 }
 
 /* =======================
@@ -170,13 +339,39 @@ document.getElementById('connect').onclick = async () => {
     const p = parseRaceBoxPacket(data);
     if (!p) return;
 
-    document.getElementById('fix').textContent =
-      p.fixType >= 3 ? '3D FIX' : 'NO FIX';
+    const hz = updateHz();
 
-    document.getElementById('sv').textContent = p.numSV;
+    // GPS RECEIVER
+    document.getElementById('time').textContent = p.timeStr;
+    document.getElementById('fix').textContent = p.fixType >= 3 ? '3D FIX' : 'NO FIX';
+    document.getElementById('sv').textContent = p.numSV + ' sats';
+    document.getElementById('hz').textContent = hz.toFixed(1) + ' Hz';
+    document.getElementById('battery').innerHTML = `<span class="battery">${p.battery}%</span>`;
+    document.getElementById('pdop').textContent = p.pdop.toFixed(2);
+
+    // POSITION
+    document.getElementById('lat').textContent = p.lat.toFixed(6);
+    document.getElementById('lon').textContent = p.lon.toFixed(6);
+    document.getElementById('alt_wgs').textContent = p.altWGS.toFixed(1) + ' m';
+    document.getElementById('alt_msl').textContent = p.altMSL.toFixed(1) + ' m';
+    document.getElementById('acc_h').textContent = p.hAcc.toFixed(2) + ' m';
+    document.getElementById('acc_v').textContent = p.vAcc.toFixed(2) + ' m';
+
+    // MOTION
     document.getElementById('speed').textContent = p.gSpeed.toFixed(1) + ' km/h';
     document.getElementById('heading').textContent = p.heading.toFixed(1) + ' °';
-    document.getElementById('acc').textContent = p.hAcc.toFixed(2) + ' m';
+    document.getElementById('speed_acc').textContent = p.speedAcc.toFixed(2) + ' km/h';
+    document.getElementById('heading_acc').textContent = p.headingAcc.toFixed(2) + ' °';
+
+    // ACCELEROMETER
+    document.getElementById('acc_x').textContent = p.accX.toFixed(2) + ' G';
+    document.getElementById('acc_y').textContent = p.accY.toFixed(2) + ' G';
+    document.getElementById('acc_z').textContent = p.accZ.toFixed(2) + ' G';
+
+    // GYROSCOPE
+    document.getElementById('gyro_x').textContent = p.gyroX.toFixed(1) + ' °/s';
+    document.getElementById('gyro_y').textContent = p.gyroY.toFixed(1) + ' °/s';
+    document.getElementById('gyro_z').textContent = p.gyroZ.toFixed(1) + ' °/s';
 
     // MAP
     if (!marker) {
@@ -187,8 +382,6 @@ document.getElementById('connect').onclick = async () => {
     }
 
     track.addLatLng([p.lat, p.lon]);
-
-    updateHz();
   });
 };
 </script>
