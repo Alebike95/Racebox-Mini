@@ -121,8 +121,8 @@ function parseRaceBoxPacket(data) {
 
   const hAcc = u32(data, p + 32) / 1000;
 
-  const gSpeed = i32(data, p + 60) / 1000 * 3.6;
-  const heading = i32(data, p + 64) * 1e-5;
+  const gSpeed = u32(data, p + 36) / 1000 * 3.6;
+  const heading = u32(data, p + 60) * 1e-5;
 
   return { fixType, numSV, lat, lon, gSpeed, heading, hAcc };
 }
