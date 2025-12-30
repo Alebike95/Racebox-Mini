@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>RaceBox Mini – DEBUG Mode</title>
+  <title>RaceBox Mini – GNSS + Map</title>
 
   <!-- Leaflet -->
   <link
@@ -55,43 +55,12 @@
       height: 300px;
       border-radius: 12px;
       box-shadow: 0 0 10px #000;
-      margin-bottom: 15px;
-    }
-
-    #debug {
-      background: #111;
-      border-radius: 12px;
-      padding: 14px;
-      box-shadow: 0 0 10px #000;
-      font-size: 12px;
-      max-height: 1200px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    .debug-section {
-      margin-bottom: 10px;
-      padding: 8px;
-      background: #1a1a1a;
-      border-radius: 6px;
-    }
-
-    .debug-title {
-      color: #00ccff;
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-
-    .highlight {
-      color: #ffff00;
-      font-weight: bold;
     }
   </style>
 </head>
 <body>
 
-<h1>🏁 RaceBox Mini – DEBUG Mode</h1>
+<h1>🏁 RaceBox Mini – GNSS Dashboard</h1>
 
 <button id="connect">🔗 Connetti RaceBox</button>
 
@@ -105,9 +74,6 @@
 </div>
 
 <div id="map"></div>
-
-<h2>🔍 DEBUG - Analisi Bytes (confronta con RaceChrono!)</h2>
-<div id="debug"></div>
 
 <script>
 /* =======================
@@ -131,16 +97,6 @@ let track = L.polyline([], { color: '#00ff9c' }).addTo(map);
 /* =======================
    Utils
 ======================= */
-function u8(d, o) {
-  return d[o];
-}
-function u16(d, o) {
-  return d[o] | (d[o+1]<<8);
-}
-function i16(d, o) {
-  const val = u16(d, o);
-  return val > 32767 ? val - 65536 : val;
-}
 function u32(d, o) {
   return d[o] | (d[o+1]<<8) | (d[o+2]<<16) | (d[o+3]<<24);
 }
@@ -149,68 +105,7 @@ function i32(d, o) {
 }
 
 /* =======================
-   DEBUG: Mostra tutti i valori possibili
-======================= */
-function debugPacket(data) {
-  if (data[0] !== 0xB5 || data[1] !== 0x62) return;
-  if (data[2] !== 0xFF || data[3] !== 0x01) return;
-
-  const p = 6; // payload start
-  
-  let debug = '<div class="debug-section">';
-  debug += '<div class="debug-title">📦 PACCHETTO RICEVUTO</div>';
-  
-  // Mostra coordinate (SICURE)
-  const lon = i32(data, p + 24) * 1e-7;
-  const lat = i32(data, p + 28) * 1e-7;
-  debug += `<span class="highlight">LAT/LON (corretti):</span> ${lat.toFixed(7)}, ${lon.toFixed(7)}\n\n`;
-  
-  // Prova TUTTI i possibili offset per trovare i valori giusti
-  debug += '<div class="debug-title">🔢 VALORI POSSIBILI (confronta con RaceChrono):</div>\n';
-  
-  // Byte singoli interessanti
-  for (let offset = 20; offset <= 70; offset++) {
-    if (offset + p < data.length) {
-      const val = u8(data, p + offset);
-      debug += `Offset ${offset} (u8): ${val}\n`;
-    }
-  }
-  
-  debug += '\n<div class="debug-title">🔢 VALORI A 16 BIT:</div>\n';
-  for (let offset = 32; offset <= 70; offset += 2) {
-    if (offset + p + 1 < data.length) {
-      const val_u16 = u16(data, p + offset);
-      const val_i16 = i16(data, p + offset);
-      debug += `Offset ${offset} (u16): ${val_u16} | (i16): ${val_i16}\n`;
-    }
-  }
-  
-  debug += '\n<div class="debug-title">🔢 VALORI A 32 BIT:</div>\n';
-  for (let offset = 32; offset <= 70; offset += 4) {
-    if (offset + p + 3 < data.length) {
-      const val_u32 = u32(data, p + offset);
-      const val_i32 = i32(data, p + offset);
-      
-      // Mostra anche interpretazioni comuni
-      const as_speed = (val_u32 / 1000 * 3.6).toFixed(2);
-      const as_heading = (val_u32 * 1e-5).toFixed(2);
-      const as_acc = (val_u32 / 1000).toFixed(2);
-      
-      debug += `Offset ${offset}:\n`;
-      debug += `  u32: ${val_u32} | i32: ${val_i32}\n`;
-      debug += `  Come velocità: ${as_speed} km/h\n`;
-      debug += `  Come heading: ${as_heading}°\n`;
-      debug += `  Come accuratezza: ${as_acc} m\n\n`;
-    }
-  }
-  
-  debug += '</div>';
-  
-  document.getElementById('debug').innerHTML = debug;
-}
-
-/* =======================
-   Parser RaceBox (versione attuale)
+   Parser RaceBox (CORRETTO con documentazione ufficiale)
 ======================= */
 function parseRaceBoxPacket(data) {
   if (data[0] !== 0xB5 || data[1] !== 0x62) return null;
@@ -218,16 +113,28 @@ function parseRaceBoxPacket(data) {
 
   const p = 6; // payload start
 
+  // Offset 20: Fix Status (0=no fix, 3=3D fix)
   const fixType = data[p + 20];
-  const numSV   = data[p + 21];
+  
+  // Offset 23: Number of satellites
+  const numSV = data[p + 23];
 
+  // Offset 24-27: Longitude (Int32, gradi * 10^7)
   const lon = i32(data, p + 24) * 1e-7;
+  
+  // Offset 28-31: Latitude (Int32, gradi * 10^7)
   const lat = i32(data, p + 28) * 1e-7;
 
-  const hAcc = u32(data, p + 32) / 1000;
+  // Offset 40-43: Horizontal Accuracy (UInt32, mm)
+  const hAcc = u32(data, p + 40) / 1000; // converti in metri
 
-  const gSpeed = u32(data, p + 36) / 1000 * 3.6;
-  const heading = u32(data, p + 60) * 1e-5;
+  // Offset 48-51: Speed (Int32, mm/s)
+  const speedMmS = i32(data, p + 48);
+  const gSpeed = (speedMmS / 1000) * 3.6; // converti in km/h
+
+  // Offset 52-55: Heading (Int32, gradi * 10^5)
+  const headingRaw = i32(data, p + 52);
+  const heading = headingRaw / 100000; // converti in gradi
 
   return { fixType, numSV, lat, lon, gSpeed, heading, hAcc };
 }
@@ -260,10 +167,6 @@ document.getElementById('connect').onclick = async () => {
 
   tx.addEventListener('characteristicvaluechanged', e => {
     const data = new Uint8Array(e.target.value.buffer);
-    
-    // Mostra debug
-    debugPacket(data);
-    
     const p = parseRaceBoxPacket(data);
     if (!p) return;
 
