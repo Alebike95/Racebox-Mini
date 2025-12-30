@@ -2,41 +2,59 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>RaceBox Mini – GNSS Dashboard</title>
+  <title>RaceBox Mini – GNSS + Map</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <style>
     body {
+      margin: 0;
       font-family: system-ui, monospace;
       background: #0b0b0b;
       color: #00ff9c;
       padding: 20px;
     }
+
     button {
-      padding: 10px 15px;
+      padding: 10px 16px;
       font-size: 16px;
-      margin-right: 10px;
+      margin-bottom: 15px;
+      cursor: pointer;
     }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 15px;
-      margin-top: 20px;
+      margin-bottom: 15px;
     }
+
     .card {
       background: #111;
-      border-radius: 10px;
-      padding: 15px;
+      border-radius: 12px;
+      padding: 14px;
       box-shadow: 0 0 10px #000;
     }
+
     .label {
-      font-size: 14px;
+      font-size: 13px;
       opacity: 0.7;
     }
+
     .value {
-      font-size: 26px;
+      font-size: 24px;
       font-weight: bold;
     }
-    .small {
-      font-size: 18px;
+
+    #map {
+      height: 300px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px #000;
     }
   </style>
 </head>
@@ -49,69 +67,80 @@
 <div class="grid">
   <div class="card"><div class="label">Fix</div><div id="fix" class="value">–</div></div>
   <div class="card"><div class="label">Satelliti</div><div id="sv" class="value">–</div></div>
-  <div class="card"><div class="label">Latitudine</div><div id="lat" class="value small">–</div></div>
-  <div class="card"><div class="label">Longitudine</div><div id="lon" class="value small">–</div></div>
   <div class="card"><div class="label">Velocità</div><div id="speed" class="value">– km/h</div></div>
   <div class="card"><div class="label">Heading</div><div id="heading" class="value">– °</div></div>
   <div class="card"><div class="label">Accuratezza</div><div id="acc" class="value">– m</div></div>
   <div class="card"><div class="label">Frequenza</div><div id="hz" class="value">– Hz</div></div>
 </div>
 
+<div id="map"></div>
+
 <script>
+/* =======================
+   BLE UUID
+======================= */
 const UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const UART_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
-let lastPacketTime = null;
-let hzCounter = [];
+/* =======================
+   Map
+======================= */
+const map = L.map('map').setView([0, 0], 2);
 
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19
+}).addTo(map);
+
+let marker = null;
+let track = L.polyline([], { color: '#00ff9c' }).addTo(map);
+
+/* =======================
+   Utils
+======================= */
 function u32(d, o) {
   return d[o] | (d[o+1]<<8) | (d[o+2]<<16) | (d[o+3]<<24);
 }
 function i32(d, o) {
-  return (u32(d,o) << 0);
-}
-function u16(d, o) {
-  return d[o] | (d[o+1]<<8);
+  return (u32(d, o) << 0);
 }
 
+/* =======================
+   Parser RaceBox (FIXED)
+======================= */
 function parseRaceBoxPacket(data) {
-  // Check UBX header
   if (data[0] !== 0xB5 || data[1] !== 0x62) return null;
   if (data[2] !== 0xFF || data[3] !== 0x01) return null;
 
-  const payloadStart = 6;
+  const p = 6; // payload start
 
-  const year   = u16(data, payloadStart + 4);
-  const month  = data[payloadStart + 6];
-  const day    = data[payloadStart + 7];
-  const hour   = data[payloadStart + 8];
-  const min    = data[payloadStart + 9];
-  const sec    = data[payloadStart +10];
+  const fixType = data[p + 20];
+  const numSV   = data[p + 21];
 
-  const fixType = data[payloadStart +11];
-  const numSV   = data[payloadStart +12];
+  const lon = i32(data, p + 24) * 1e-7;
+  const lat = i32(data, p + 28) * 1e-7;
 
-  const lon = i32(data, payloadStart + 16) * 1e-7;
-  const lat = i32(data, payloadStart + 20) * 1e-7;
+  const hAcc = u32(data, p + 32) / 1000;
 
-  const gSpeed = i32(data, payloadStart + 36) / 1000 * 3.6; // mm/s → km/h
-  const heading = i32(data, payloadStart + 40) * 1e-5;
+  const gSpeed = i32(data, p + 60) / 1000 * 3.6;
+  const heading = i32(data, p + 64) * 1e-5;
 
-  const hAcc = u32(data, payloadStart + 28) / 1000;
-
-  return {
-    fixType, numSV, lat, lon, gSpeed, heading, hAcc,
-    time: `${hour}:${min}:${sec}`
-  };
+  return { fixType, numSV, lat, lon, gSpeed, heading, hAcc };
 }
 
+/* =======================
+   Hz counter
+======================= */
+let hzTimes = [];
 function updateHz() {
   const now = performance.now();
-  hzCounter.push(now);
-  hzCounter = hzCounter.filter(t => now - t < 1000);
-  document.getElementById('hz').textContent = hzCounter.length.toFixed(1) + ' Hz';
+  hzTimes.push(now);
+  hzTimes = hzTimes.filter(t => now - t < 1000);
+  document.getElementById('hz').textContent = hzTimes.length.toFixed(1) + ' Hz';
 }
 
+/* =======================
+   BLE connect
+======================= */
 document.getElementById('connect').onclick = async () => {
   const device = await navigator.bluetooth.requestDevice({
     filters: [{ namePrefix: 'RaceBox Mini' }],
@@ -126,18 +155,26 @@ document.getElementById('connect').onclick = async () => {
 
   tx.addEventListener('characteristicvaluechanged', e => {
     const data = new Uint8Array(e.target.value.buffer);
-    const parsed = parseRaceBoxPacket(data);
-    if (!parsed) return;
+    const p = parseRaceBoxPacket(data);
+    if (!p) return;
 
     document.getElementById('fix').textContent =
-      parsed.fixType >= 3 ? '3D FIX' : 'NO FIX';
+      p.fixType >= 3 ? '3D FIX' : 'NO FIX';
 
-    document.getElementById('sv').textContent = parsed.numSV;
-    document.getElementById('lat').textContent = parsed.lat.toFixed(7);
-    document.getElementById('lon').textContent = parsed.lon.toFixed(7);
-    document.getElementById('speed').textContent = parsed.gSpeed.toFixed(1) + ' km/h';
-    document.getElementById('heading').textContent = parsed.heading.toFixed(1) + ' °';
-    document.getElementById('acc').textContent = parsed.hAcc.toFixed(2) + ' m';
+    document.getElementById('sv').textContent = p.numSV;
+    document.getElementById('speed').textContent = p.gSpeed.toFixed(1) + ' km/h';
+    document.getElementById('heading').textContent = p.heading.toFixed(1) + ' °';
+    document.getElementById('acc').textContent = p.hAcc.toFixed(2) + ' m';
+
+    // MAP
+    if (!marker) {
+      marker = L.marker([p.lat, p.lon]).addTo(map);
+      map.setView([p.lat, p.lon], 17);
+    } else {
+      marker.setLatLng([p.lat, p.lon]);
+    }
+
+    track.addLatLng([p.lat, p.lon]);
 
     updateHz();
   });
