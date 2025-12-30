@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>RaceBox Mini BLE Test</title>
+  <title>RaceBox Mini UART BLE</title>
   <style>
     body {
       font-family: monospace;
@@ -25,65 +25,61 @@
 </head>
 <body>
 
-<h2>RaceBox Mini BLE Scanner</h2>
+<h2>RaceBox Mini – UART BLE Monitor</h2>
 
-<button id="connectBtn">Connetti a RaceBox</button>
+<button id="connect">Connetti</button>
 
 <pre id="log"></pre>
 
 <script>
+const UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const UART_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const UART_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 const log = msg => {
-  const el = document.getElementById("log");
-  el.textContent += msg + "\n";
+  const el = document.getElementById('log');
+  el.textContent += msg + '\n';
   el.scrollTop = el.scrollHeight;
 };
 
-document.getElementById("connectBtn").onclick = async () => {
+document.getElementById('connect').onclick = async () => {
   try {
-    log("🔍 Ricerca RaceBox...");
+    log('🔍 Scansione RaceBox Mini...');
 
     const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [
-        'battery_service',
-        'device_information'
-      ]
+      filters: [{ namePrefix: 'RaceBox Mini' }],
+      optionalServices: [UART_SERVICE]
     });
 
-    log(`✅ Connesso a: ${device.name || 'sconosciuto'}`);
+    log(`✅ Trovato: ${device.name}`);
 
     const server = await device.gatt.connect();
-    log("🔗 GATT connesso");
+    log('🔗 GATT connesso');
 
-    // ⚠️ NON enumeriamo tutti i servizi (causa errore)
-    // Proviamo solo quelli standard
+    const service = await server.getPrimaryService(UART_SERVICE);
+    log('📡 UART service OK');
 
-    try {
-      const battery = await server.getPrimaryService('battery_service');
-      const level = await battery.getCharacteristic('battery_level');
-      const value = await level.readValue();
-      log(`🔋 Batteria: ${value.getUint8(0)}%`);
-    } catch {
-      log("ℹ️ Battery service non disponibile");
-    }
+    const txChar = await service.getCharacteristic(UART_TX);
+    const rxChar = await service.getCharacteristic(UART_RX);
 
-    try {
-      const info = await server.getPrimaryService('device_information');
-      const chars = await info.getCharacteristics();
-      for (const c of chars) {
-        if (c.properties.read) {
-          const v = await c.readValue();
-          log(`ℹ️ Info ${c.uuid}: ${new TextDecoder().decode(v)}`);
-        }
-      }
-    } catch {
-      log("ℹ️ Device info non disponibile");
-    }
+    log('📥 TX / 📤 RX caratteristiche OK');
 
-    log("✅ Connessione stabile. Nessun crash.");
+    await txChar.startNotifications();
+    log('🔔 Notifiche abilitate (25Hz attesi)');
 
-  } catch (err) {
-    log(`❌ ERRORE: ${err.message}`);
+    txChar.addEventListener('characteristicvaluechanged', e => {
+      const data = new Uint8Array(e.target.value.buffer);
+
+      // dump HEX
+      const hex = [...data].map(b => b.toString(16).padStart(2, '0')).join(' ');
+      log(`📡 ${hex}`);
+    });
+
+    // opzionale: comando di handshake (se richiesto dal firmware)
+    // await rxChar.writeValue(new Uint8Array([0x01]));
+
+  } catch (e) {
+    log('❌ ERRORE: ' + e.message);
   }
 };
 </script>
