@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>RaceBox Mini BLE Test</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #111;
+      color: #0f0;
+      padding: 20px;
+    }
+    button {
+      font-size: 16px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    pre {
+      background: #000;
+      padding: 10px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+<h2>RaceBox Mini BLE Scanner</h2>
+
+<button id="connectBtn">Connetti a RaceBox</button>
+
+<pre id="log"></pre>
+
+<script>
+const log = msg => {
+  const el = document.getElementById("log");
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+document.getElementById("connectBtn").onclick = async () => {
+  try {
+    log("🔍 Ricerca dispositivo...");
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [
+        { namePrefix: "RaceBox Mini" }
+      ],
+      optionalServices: ['battery_service']
+    });
+
+    log(`✅ Dispositivo trovato: ${device.name}`);
+
+    const server = await device.gatt.connect();
+    log("🔗 Connesso al GATT server");
+
+    const services = await server.getPrimaryServices();
+    log(`📡 Servizi trovati: ${services.length}`);
+
+    for (const service of services) {
+      log(`\n➡️ Servizio: ${service.uuid}`);
+
+      const characteristics = await service.getCharacteristics();
+      for (const char of characteristics) {
+        log(`  └─ Caratteristica: ${char.uuid}`);
+        log(`     Proprietà: ${JSON.stringify(char.properties)}`);
+
+        if (char.properties.notify) {
+          log("     🔔 Abilito notifiche...");
+          await char.startNotifications();
+          char.addEventListener('characteristicvaluechanged', e => {
+            const value = new Uint8Array(e.target.value.buffer);
+            log(`📥 Notify (${char.uuid}): ${[...value].map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+          });
+        }
+
+        if (char.properties.read) {
+          const value = await char.readValue();
+          const data = new Uint8Array(value.buffer);
+          log(`📖 Read (${char.uuid}): ${[...data].map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+        }
+      }
+    }
+
+  } catch (err) {
+    log(`❌ Errore: ${err}`);
+  }
+};
+</script>
+
+</body>
+</html>
