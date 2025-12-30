@@ -40,50 +40,50 @@ const log = msg => {
 
 document.getElementById("connectBtn").onclick = async () => {
   try {
-    log("🔍 Ricerca dispositivo...");
+    log("🔍 Ricerca RaceBox...");
 
     const device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { namePrefix: "RaceBox Mini" }
-      ],
-      optionalServices: ['battery_service']
+      acceptAllDevices: true,
+      optionalServices: [
+        'battery_service',
+        'device_information'
+      ]
     });
 
-    log(`✅ Dispositivo trovato: ${device.name}`);
+    log(`✅ Connesso a: ${device.name || 'sconosciuto'}`);
 
     const server = await device.gatt.connect();
-    log("🔗 Connesso al GATT server");
+    log("🔗 GATT connesso");
 
-    const services = await server.getPrimaryServices();
-    log(`📡 Servizi trovati: ${services.length}`);
+    // ⚠️ NON enumeriamo tutti i servizi (causa errore)
+    // Proviamo solo quelli standard
 
-    for (const service of services) {
-      log(`\n➡️ Servizio: ${service.uuid}`);
-
-      const characteristics = await service.getCharacteristics();
-      for (const char of characteristics) {
-        log(`  └─ Caratteristica: ${char.uuid}`);
-        log(`     Proprietà: ${JSON.stringify(char.properties)}`);
-
-        if (char.properties.notify) {
-          log("     🔔 Abilito notifiche...");
-          await char.startNotifications();
-          char.addEventListener('characteristicvaluechanged', e => {
-            const value = new Uint8Array(e.target.value.buffer);
-            log(`📥 Notify (${char.uuid}): ${[...value].map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-          });
-        }
-
-        if (char.properties.read) {
-          const value = await char.readValue();
-          const data = new Uint8Array(value.buffer);
-          log(`📖 Read (${char.uuid}): ${[...data].map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-        }
-      }
+    try {
+      const battery = await server.getPrimaryService('battery_service');
+      const level = await battery.getCharacteristic('battery_level');
+      const value = await level.readValue();
+      log(`🔋 Batteria: ${value.getUint8(0)}%`);
+    } catch {
+      log("ℹ️ Battery service non disponibile");
     }
 
+    try {
+      const info = await server.getPrimaryService('device_information');
+      const chars = await info.getCharacteristics();
+      for (const c of chars) {
+        if (c.properties.read) {
+          const v = await c.readValue();
+          log(`ℹ️ Info ${c.uuid}: ${new TextDecoder().decode(v)}`);
+        }
+      }
+    } catch {
+      log("ℹ️ Device info non disponibile");
+    }
+
+    log("✅ Connessione stabile. Nessun crash.");
+
   } catch (err) {
-    log(`❌ Errore: ${err}`);
+    log(`❌ ERRORE: ${err.message}`);
   }
 };
 </script>
