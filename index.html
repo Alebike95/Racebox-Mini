@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>RaceBox Mini – Complete Dashboard</title>
 
-  <!-- Leaflet -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -77,6 +76,11 @@
       font-weight: bold;
       display: inline-block;
     }
+    
+    .charging {
+      color: #ffeb3b;
+      margin-left: 5px;
+    }
   </style>
 </head>
 <body>
@@ -85,7 +89,6 @@
 
 <button id="connect">🔗 Connetti RaceBox</button>
 
-<!-- GPS RECEIVER -->
 <h2>📡 GPS Receiver</h2>
 <div class="grid">
   <div class="card">
@@ -114,7 +117,6 @@
   </div>
 </div>
 
-<!-- POSITION -->
 <h2>📍 Position</h2>
 <div class="grid">
   <div class="card">
@@ -143,7 +145,6 @@
   </div>
 </div>
 
-<!-- MOTION -->
 <h2>🏎️ Motion</h2>
 <div class="grid">
   <div class="card">
@@ -164,7 +165,6 @@
   </div>
 </div>
 
-<!-- ACCELEROMETER -->
 <h2>⚡ Accelerometer</h2>
 <div class="grid">
   <div class="card">
@@ -181,7 +181,6 @@
   </div>
 </div>
 
-<!-- GYROSCOPE -->
 <h2>🔄 Gyroscope</h2>
 <div class="grid">
   <div class="card">
@@ -198,7 +197,6 @@
   </div>
 </div>
 
-<!-- MAP -->
 <h2>🗺️ Map</h2>
 <div id="map"></div>
 
@@ -224,12 +222,8 @@ let track = L.polyline([], { color: '#00ff9c' }).addTo(map);
 /* =======================
    Utils
 ======================= */
-function u8(d, o) {
-  return d[o];
-}
-function u16(d, o) {
-  return d[o] | (d[o+1]<<8);
-}
+function u8(d, o) { return d[o]; }
+function u16(d, o) { return d[o] | (d[o+1]<<8); }
 function i16(d, o) {
   const val = u16(d, o);
   return val > 32767 ? val - 65536 : val;
@@ -241,11 +235,34 @@ function i32(d, o) {
   return (u32(d, o) << 0);
 }
 
+// Helper per il buffer
+function appendBuffer(buffer1, buffer2) {
+  const tmp = new Uint8Array(buffer1.length + buffer2.length);
+  tmp.set(buffer1, 0);
+  tmp.set(buffer2, buffer1.length);
+  return tmp;
+}
+
+// Controllo Checksum (Fletcher) come da manuale RaceBox
+function validateChecksum(data, length) {
+    let ck_a = 0;
+    let ck_b = 0;
+    // Il checksum calcola dai byte 2 fino a (Length + 6 - 2)
+    // Cioè esclude i primi 2 (Sync) e gli ultimi 2 (Checksum)
+    for (let i = 2; i < length - 2; i++) {
+        ck_a = (ck_a + data[i]) & 0xFF;
+        ck_b = (ck_b + ck_a) & 0xFF;
+    }
+    return (ck_a === data[length - 2] && ck_b === data[length - 1]);
+}
+
 /* =======================
    Parser RaceBox COMPLETO
 ======================= */
 function parseRaceBoxPacket(data) {
+  // Verifica header base
   if (data[0] !== 0xB5 || data[1] !== 0x62) return null;
+  // Verifica sia il pacchetto dati (Class FF, ID 01)
   if (data[2] !== 0xFF || data[3] !== 0x01) return null;
 
   const p = 6; // payload start
@@ -286,8 +303,10 @@ function parseRaceBoxPacket(data) {
   // PDOP
   const pdop = u16(data, p + 64) / 100;
 
-  // BATTERIA
-  const battery = u8(data, p + 67); // % per Mini
+  // BATTERIA (CORRETTO con Bitmask)
+  const rawBat = u8(data, p + 67);
+  const battery = rawBat & 0x7F; // Primi 7 bit sono la %
+  const charging = (rawBat & 0x80) !== 0; // 8° bit è lo stato di carica
 
   // ACCELEROMETRO (milli-g)
   const accX = i16(data, p + 68) / 1000; // G
@@ -300,7 +319,7 @@ function parseRaceBoxPacket(data) {
   const gyroZ = i16(data, p + 78) / 100; // °/s
 
   return {
-    timeStr, fixType, numSV, pdop, battery,
+    timeStr, fixType, numSV, pdop, battery, charging,
     lat, lon, altWGS, altMSL, hAcc, vAcc,
     gSpeed, heading, speedAcc, headingAcc,
     accX, accY, accZ,
@@ -322,67 +341,116 @@ function updateHz() {
 /* =======================
    BLE connect
 ======================= */
+let rxBuffer = new Uint8Array(0); // Buffer per gestire la frammentazione
+
 document.getElementById('connect').onclick = async () => {
-  const device = await navigator.bluetooth.requestDevice({
-    filters: [{ namePrefix: 'RaceBox Mini' }],
-    optionalServices: [UART_SERVICE]
-  });
+  try {
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'RaceBox Mini' }],
+        optionalServices: [UART_SERVICE]
+      });
 
-  const server = await device.gatt.connect();
-  const service = await server.getPrimaryService(UART_SERVICE);
-  const tx = await service.getCharacteristic(UART_TX);
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(UART_SERVICE);
+      const tx = await service.getCharacteristic(UART_TX);
 
-  await tx.startNotifications();
+      await tx.startNotifications();
 
-  tx.addEventListener('characteristicvaluechanged', e => {
-    const data = new Uint8Array(e.target.value.buffer);
-    const p = parseRaceBoxPacket(data);
-    if (!p) return;
+      tx.addEventListener('characteristicvaluechanged', e => {
+        const chunk = new Uint8Array(e.target.value.buffer);
+        // Aggiungi dati al buffer
+        rxBuffer = appendBuffer(rxBuffer, chunk);
 
-    const hz = updateHz();
+        // Processa il buffer finché troviamo pacchetti validi
+        while (true) {
+            // Se buffer troppo corto per un header, esci e aspetta
+            if (rxBuffer.length < 6) break; 
 
-    // GPS RECEIVER
-    document.getElementById('time').textContent = p.timeStr;
-    document.getElementById('fix').textContent = p.fixType >= 3 ? '3D FIX' : 'NO FIX';
-    document.getElementById('sv').textContent = p.numSV + ' sats';
-    document.getElementById('hz').textContent = hz.toFixed(1) + ' Hz';
-    document.getElementById('battery').innerHTML = `<span class="battery">${p.battery}%</span>`;
-    document.getElementById('pdop').textContent = p.pdop.toFixed(2);
+            // Cerca Sync Header (0xB5 0x62)
+            if (rxBuffer[0] !== 0xB5 || rxBuffer[1] !== 0x62) {
+                // Se non troviamo l'header, scartiamo il primo byte e riproviamo (shift)
+                rxBuffer = rxBuffer.slice(1);
+                continue;
+            }
 
-    // POSITION
-    document.getElementById('lat').textContent = p.lat.toFixed(6);
-    document.getElementById('lon').textContent = p.lon.toFixed(6);
-    document.getElementById('alt_wgs').textContent = p.altWGS.toFixed(1) + ' m';
-    document.getElementById('alt_msl').textContent = p.altMSL.toFixed(1) + ' m';
-    document.getElementById('acc_h').textContent = p.hAcc.toFixed(2) + ' m';
-    document.getElementById('acc_v').textContent = p.vAcc.toFixed(2) + ' m';
+            // Leggiamo la lunghezza del payload (byte 4 e 5)
+            const payloadLen = u16(rxBuffer, 4);
+            const totalMsgLen = 6 + payloadLen + 2; // Header(6) + Payload + Checksum(2)
 
-    // MOTION
-    document.getElementById('speed').textContent = p.gSpeed.toFixed(1) + ' km/h';
-    document.getElementById('heading').textContent = p.heading.toFixed(1) + ' °';
-    document.getElementById('speed_acc').textContent = p.speedAcc.toFixed(2) + ' km/h';
-    document.getElementById('heading_acc').textContent = p.headingAcc.toFixed(2) + ' °';
+            // Abbiamo ricevuto tutto il messaggio?
+            if (rxBuffer.length < totalMsgLen) {
+                break; // Aspettiamo il prossimo pezzo dal Bluetooth
+            }
 
-    // ACCELEROMETER
-    document.getElementById('acc_x').textContent = p.accX.toFixed(2) + ' G';
-    document.getElementById('acc_y').textContent = p.accY.toFixed(2) + ' G';
-    document.getElementById('acc_z').textContent = p.accZ.toFixed(2) + ' G';
+            // Estraiamo il messaggio completo
+            const msg = rxBuffer.slice(0, totalMsgLen);
+            
+            // Rimuoviamo il messaggio dal buffer principale
+            rxBuffer = rxBuffer.slice(totalMsgLen);
 
-    // GYROSCOPE
-    document.getElementById('gyro_x').textContent = p.gyroX.toFixed(1) + ' °/s';
-    document.getElementById('gyro_y').textContent = p.gyroY.toFixed(1) + ' °/s';
-    document.getElementById('gyro_z').textContent = p.gyroZ.toFixed(1) + ' °/s';
+            // Validazione Checksum (Safety Check)
+            if (!validateChecksum(msg, totalMsgLen)) {
+                console.warn("Checksum errato, pacchetto scartato");
+                continue;
+            }
 
-    // MAP
-    if (!marker) {
-      marker = L.marker([p.lat, p.lon]).addTo(map);
-      map.setView([p.lat, p.lon], 17);
-    } else {
-      marker.setLatLng([p.lat, p.lon]);
-    }
+            // Parsiamo il pacchetto
+            const p = parseRaceBoxPacket(msg);
+            if (!p) continue; // Se non è il pacchetto dati (Class FF ID 01), ignoriamo
 
-    track.addLatLng([p.lat, p.lon]);
-  });
+            // --- AGGIORNAMENTO UI ---
+            const hz = updateHz();
+
+            // GPS RECEIVER
+            document.getElementById('time').textContent = p.timeStr;
+            document.getElementById('fix').textContent = p.fixType >= 3 ? '3D FIX' : 'NO FIX';
+            document.getElementById('sv').textContent = p.numSV + ' sats';
+            document.getElementById('hz').textContent = hz.toFixed(1) + ' Hz';
+            
+            let batHtml = `<span class="battery">${p.battery}%</span>`;
+            if (p.charging) batHtml += ` <span class="charging">⚡</span>`;
+            document.getElementById('battery').innerHTML = batHtml;
+            
+            document.getElementById('pdop').textContent = p.pdop.toFixed(2);
+
+            // POSITION
+            document.getElementById('lat').textContent = p.lat.toFixed(6);
+            document.getElementById('lon').textContent = p.lon.toFixed(6);
+            document.getElementById('alt_wgs').textContent = p.altWGS.toFixed(1) + ' m';
+            document.getElementById('alt_msl').textContent = p.altMSL.toFixed(1) + ' m';
+            document.getElementById('acc_h').textContent = p.hAcc.toFixed(2) + ' m';
+            document.getElementById('acc_v').textContent = p.vAcc.toFixed(2) + ' m';
+
+            // MOTION
+            document.getElementById('speed').textContent = p.gSpeed.toFixed(1) + ' km/h';
+            document.getElementById('heading').textContent = p.heading.toFixed(1) + ' °';
+            document.getElementById('speed_acc').textContent = p.speedAcc.toFixed(2) + ' km/h';
+            document.getElementById('heading_acc').textContent = p.headingAcc.toFixed(2) + ' °';
+
+            // ACCELEROMETER
+            document.getElementById('acc_x').textContent = p.accX.toFixed(2) + ' G';
+            document.getElementById('acc_y').textContent = p.accY.toFixed(2) + ' G';
+            document.getElementById('acc_z').textContent = p.accZ.toFixed(2) + ' G';
+
+            // GYROSCOPE
+            document.getElementById('gyro_x').textContent = p.gyroX.toFixed(1) + ' °/s';
+            document.getElementById('gyro_y').textContent = p.gyroY.toFixed(1) + ' °/s';
+            document.getElementById('gyro_z').textContent = p.gyroZ.toFixed(1) + ' °/s';
+
+            // MAP
+            if (!marker) {
+            marker = L.marker([p.lat, p.lon]).addTo(map);
+            map.setView([p.lat, p.lon], 17);
+            } else {
+            marker.setLatLng([p.lat, p.lon]);
+            }
+
+            track.addLatLng([p.lat, p.lon]);
+        }
+      });
+  } catch (err) {
+      alert("Errore connessione: " + err);
+  }
 };
 </script>
 
